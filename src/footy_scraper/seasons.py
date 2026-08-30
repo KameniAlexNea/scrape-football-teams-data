@@ -6,8 +6,6 @@ recent autumn, i.e. a run started in July or later belongs to the season that
 began that same year.
 """
 
-
-
 from datetime import date
 
 

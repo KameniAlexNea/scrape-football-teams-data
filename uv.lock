@@ -250,6 +250,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "ruff" },
     { name = "typer" },
 ]
 
@@ -268,6 +269,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.5" },
     { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "ruff", specifier = ">=0.16.5" },
     { name = "typer", specifier = ">=0.12" },
 ]
 

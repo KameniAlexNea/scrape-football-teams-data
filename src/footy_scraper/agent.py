@@ -10,8 +10,6 @@ to any Anthropic-Messages-compatible server (official API, a gateway, or a
 self-hosted model server), plus ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_MODEL``.
 """
 
-
-
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,9 +67,7 @@ def _summarize_result(content: Any) -> str:
     if isinstance(content, str):
         text = content
     elif isinstance(content, list):
-        text = " ".join(
-            str(part.get("text", "")) for part in content if isinstance(part, dict)
-        )
+        text = " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
     text = " ".join(text.split())
     return text[:160] + ("…" if len(text) > 160 else "")
 
@@ -81,9 +77,7 @@ def _full_result(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return " ".join(
-            str(part.get("text", "")) for part in content if isinstance(part, dict)
-        )
+        return " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
     return str(content)
 
 
@@ -122,9 +116,7 @@ class ScrapeAgent:
     async def run(self, mission: str) -> AgentResult:
         """Run one extraction mission; returns the agent's final summary text."""
         sdk_tools = self._executor.build_mcp_tools()
-        server = create_sdk_mcp_server(
-            name=_MCP_SERVER_NAME, version="1.0.0", tools=sdk_tools
-        )
+        server = create_sdk_mcp_server(name=_MCP_SERVER_NAME, version="1.0.0", tools=sdk_tools)
         allowed_tools = [f"mcp__{_MCP_SERVER_NAME}__{t.name}" for t in sdk_tools]
 
         # The "specific link": forward the Anthropic-compatible endpoint
@@ -227,4 +219,3 @@ class ScrapeAgent:
             session_id=result_msg.session_id if result_msg is not None else None,
             total_cost_usd=result_msg.total_cost_usd if result_msg is not None else None,
         )
-

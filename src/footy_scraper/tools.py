@@ -8,8 +8,6 @@ Every implementation returns a JSON string fed back to the model as the tool
 result.
 """
 
-
-
 import json
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -36,9 +34,7 @@ def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[
 
 
 def _short_validation(exc: ValidationError) -> str:
-    return "; ".join(
-        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
-    )
+    return "; ".join(f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()[:5])
 
 
 def _sources(value: Any) -> list[str]:
@@ -56,12 +52,21 @@ BROWSE_TOOLS: list[ToolSpec] = [
     ToolSpec(
         "page_snapshot",
         "Return the current page's visible text, its title, and a list of clickable links (text + href). This is your primary way to understand a page.",
-        _obj({"focus": {"type": "string", "description": "Optional hint for what you are looking for (not used by the browser)"}}),
+        _obj(
+            {
+                "focus": {
+                    "type": "string",
+                    "description": "Optional hint for what you are looking for (not used by the browser)",
+                }
+            }
+        ),
     ),
     ToolSpec(
         "click",
         "Click an element by CSS selector or Playwright locator (e.g. 'button:has-text(\"Squad\")', '.nav a'). Prefer click_text when you know the visible label.",
-        _obj({"selector": {"type": "string", "description": "CSS selector / locator"}}, ["selector"]),
+        _obj(
+            {"selector": {"type": "string", "description": "CSS selector / locator"}}, ["selector"]
+        ),
     ),
     ToolSpec(
         "click_text",
@@ -71,27 +76,52 @@ BROWSE_TOOLS: list[ToolSpec] = [
     ToolSpec(
         "select_option",
         "Select an option in a dropdown/select (e.g. a season selector).",
-        _obj({"selector": {"type": "string", "description": "CSS selector of the select element"}, "value": {"type": "string", "description": "Option value or label to select"}}, ["selector", "value"]),
+        _obj(
+            {
+                "selector": {"type": "string", "description": "CSS selector of the select element"},
+                "value": {"type": "string", "description": "Option value or label to select"},
+            },
+            ["selector", "value"],
+        ),
     ),
     ToolSpec(
         "fill",
         "Type text into an input field (e.g. search box).",
-        _obj({"selector": {"type": "string", "description": "CSS selector of the input"}, "value": {"type": "string", "description": "Text to type"}}, ["selector", "value"]),
+        _obj(
+            {
+                "selector": {"type": "string", "description": "CSS selector of the input"},
+                "value": {"type": "string", "description": "Text to type"},
+            },
+            ["selector", "value"],
+        ),
     ),
     ToolSpec(
         "scroll",
         "Scroll the page: 'top', 'bottom', 'up', or 'down'.",
-        _obj({"direction": {"type": "string", "enum": ["top", "bottom", "up", "down"]}}, ["direction"]),
+        _obj(
+            {"direction": {"type": "string", "enum": ["top", "bottom", "up", "down"]}},
+            ["direction"],
+        ),
     ),
     ToolSpec(
         "wait",
         "Pause for the given number of milliseconds, letting lazy-loaded content appear. Use when a page looks empty or links are missing, then call page_snapshot again.",
-        _obj({"ms": {"type": "integer", "description": "Milliseconds to wait (max 10000)"}}, ["ms"]),
+        _obj(
+            {"ms": {"type": "integer", "description": "Milliseconds to wait (max 10000)"}}, ["ms"]
+        ),
     ),
     ToolSpec(
         "screenshot",
         "Save a screenshot of the current page to disk (useful for debugging). Returns the file path.",
-        _obj({"name": {"type": "string", "description": "Short filename stem, e.g. 'arsenal-squad-2024'"}}, ["name"]),
+        _obj(
+            {
+                "name": {
+                    "type": "string",
+                    "description": "Short filename stem, e.g. 'arsenal-squad-2024'",
+                }
+            },
+            ["name"],
+        ),
     ),
     ToolSpec(
         "save_standing",
@@ -100,8 +130,14 @@ BROWSE_TOOLS: list[ToolSpec] = [
         _obj(
             {
                 "season": {"type": "string", "description": "Season label like '2024-25'"},
-                "standings": {"type": "array", "description": "End-of-season table rows: club (required), position (required), played, won, drawn, lost, goals_for, goals_against, goal_difference, points"},
-                "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
+                "standings": {
+                    "type": "array",
+                    "description": "End-of-season table rows: club (required), position (required), played, won, drawn, lost, goals_for, goals_against, goal_difference, points",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "URL you extracted this from (recommended)",
+                },
             },
             ["season", "standings"],
         ),
@@ -114,10 +150,22 @@ BROWSE_TOOLS: list[ToolSpec] = [
             {
                 "season": {"type": "string", "description": "Season label like '2024-25'"},
                 "club": {"type": "string", "description": "Club name exactly as the site shows it"},
-                "squad": {"type": "array", "description": "Players: name (required), shirt_number, position, age, nationality, height_cm, joined, contract_until, market_value, injury"},
-                "manager": {"type": "object", "description": "Manager/head coach: name (required), nationality, appointed, age"},
-                "final_position": {"type": "integer", "description": "Club's final league position for this season"},
-                "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
+                "squad": {
+                    "type": "array",
+                    "description": "Players: name (required), shirt_number, position, age, nationality, height_cm, joined, contract_until, market_value, injury",
+                },
+                "manager": {
+                    "type": "object",
+                    "description": "Manager/head coach: name (required), nationality, appointed, age",
+                },
+                "final_position": {
+                    "type": "integer",
+                    "description": "Club's final league position for this season",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "URL you extracted this from (recommended)",
+                },
             },
             ["season", "club"],
         ),
@@ -129,8 +177,14 @@ BROWSE_TOOLS: list[ToolSpec] = [
         _obj(
             {
                 "season": {"type": "string", "description": "Season label like '2024-25'"},
-                "matches": {"type": "array", "description": "Matches: home_team (required), away_team (required), home_score, away_score, date, round"},
-                "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
+                "matches": {
+                    "type": "array",
+                    "description": "Matches: home_team (required), away_team (required), home_score, away_score, date, round",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "URL you extracted this from (recommended)",
+                },
             },
             ["season", "matches"],
         ),
@@ -143,7 +197,9 @@ _TOOL_BY_NAME: dict[str, ToolSpec] = {t.name: t for t in BROWSE_TOOLS}
 class ToolExecutor:
     """Runs tool calls against the live browser and store."""
 
-    def __init__(self, browser: BrowserSession, store: LeagueStore, snapshot_max_chars: int = 30_000):
+    def __init__(
+        self, browser: BrowserSession, store: LeagueStore, snapshot_max_chars: int = 30_000
+    ):
         self._browser = browser
         self._store = store
         self._snapshot_max_chars = snapshot_max_chars
@@ -230,8 +286,14 @@ class ToolExecutor:
                 f"+{res['added']} added, {res['updated']} updated)"
             )
         logger.info("🗒 {}", msg)
-        logger.log("TRACE", "save_standing payload: {}", json.dumps(args, ensure_ascii=False, default=str))
-        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
+        logger.log(
+            "TRACE", "save_standing payload: {}", json.dumps(args, ensure_ascii=False, default=str)
+        )
+        return {
+            "status": "already_saved" if res["already_saved"] else "saved",
+            "message": msg,
+            **res,
+        }
 
     async def _do_save_squad(self, args: dict[str, Any]) -> dict[str, Any]:
         season = str(args.get("season", "")).strip()
@@ -281,8 +343,14 @@ class ToolExecutor:
                 bits.append(f"final position {res['final_position']}")
             msg = ", ".join(bits)
         logger.info("👥 {}", msg)
-        logger.log("TRACE", "save_squad payload: {}", json.dumps(args, ensure_ascii=False, default=str))
-        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
+        logger.log(
+            "TRACE", "save_squad payload: {}", json.dumps(args, ensure_ascii=False, default=str)
+        )
+        return {
+            "status": "already_saved" if res["already_saved"] else "saved",
+            "message": msg,
+            **res,
+        }
 
     async def _do_save_match(self, args: dict[str, Any]) -> dict[str, Any]:
         season = str(args.get("season", "")).strip()
@@ -301,5 +369,11 @@ class ToolExecutor:
         else:
             msg = f"saved: {season} matches (+{res['added']} added, {res['updated']} updated)"
         logger.info("📅 {}", msg)
-        logger.log("TRACE", "save_match payload: {}", json.dumps(args, ensure_ascii=False, default=str))
-        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
+        logger.log(
+            "TRACE", "save_match payload: {}", json.dumps(args, ensure_ascii=False, default=str)
+        )
+        return {
+            "status": "already_saved" if res["already_saved"] else "saved",
+            "message": msg,
+            **res,
+        }

@@ -11,7 +11,6 @@ The prompt is split in two, mirroring the claude-agent-sdk pattern:
   * ``build_mission``      — the per-run user message (league, link, seasons).
 """
 
-
 from pathlib import Path
 
 

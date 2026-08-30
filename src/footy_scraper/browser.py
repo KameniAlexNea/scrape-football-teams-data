@@ -1,7 +1,5 @@
 """Playwright browser session and page primitives used by the agent tools."""
 
-
-
 import asyncio
 import re
 from pathlib import Path
@@ -57,9 +55,7 @@ class BrowserSession:
         )
         self.page = await self._context.new_page()
         self.page.set_default_timeout(self._timeout_ms)
-        logger.info(
-            "Browser started (headless={}, slow_mo={}ms)", self._headless, self._slow_mo
-        )
+        logger.info("Browser started (headless={}, slow_mo={}ms)", self._headless, self._slow_mo)
 
     async def stop(self) -> None:
         for kind, target in (
@@ -177,7 +173,9 @@ class BrowserSession:
         try:
             await locator.click(timeout=8000)
         except Exception:  # noqa: BLE001 - sticky headers/overlays intercept clicks; force through
-            logger.opt(exception=True).debug("Normal click intercepted; forcing click on {}", selector)
+            logger.opt(exception=True).debug(
+                "Normal click intercepted; forcing click on {}", selector
+            )
             await locator.click(force=True, timeout=8000)
         await self._settle()
         return {"action": "click", "url": page.url, "title": await page.title()}
@@ -192,7 +190,9 @@ class BrowserSession:
         try:
             await locator.click(timeout=8000)
         except Exception:  # noqa: BLE001 - sticky headers/overlays intercept clicks; force through
-            logger.opt(exception=True).debug("Normal click intercepted; forcing click on text {}", text)
+            logger.opt(exception=True).debug(
+                "Normal click intercepted; forcing click on text {}", text
+            )
             await locator.click(force=True, timeout=8000)
         await self._settle()
         return {"action": f"click_text({text!r})", "url": page.url, "title": await page.title()}

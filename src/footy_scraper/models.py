@@ -16,7 +16,6 @@ on the site — no normalisation or hardcoded mapping is applied. Every model
 carries an ``extra`` dict so site-specific fields are never lost.
 """
 
-
 from datetime import datetime
 from typing import Any
 

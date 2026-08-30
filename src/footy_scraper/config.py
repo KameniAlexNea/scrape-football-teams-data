@@ -1,7 +1,5 @@
 """Application settings, loaded from environment / .env via pydantic-settings."""
 
-
-
 from pathlib import Path
 
 from pydantic import Field

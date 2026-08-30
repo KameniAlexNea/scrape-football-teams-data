@@ -7,7 +7,6 @@ A single default command keeps the primary usage natural::
 and ``--install-browsers`` is a setup flag on the same command.
 """
 
-
 import asyncio
 import logging
 import subprocess
@@ -61,16 +60,41 @@ def run(
         "--install-browsers",
         help="Install the Playwright Chromium browser and exit.",
     ),
-    league: str = typer.Option(None, "--league", help="League name used in the JSON and mission prompt (e.g. \"Premier League\"). Default: derived from the URL."),
-    seasons: str = typer.Option(None, "--seasons", help='Comma-separated seasons, e.g. "2024-25,2023-24", or last:N. Default: last:10.'),
-    output: Path = typer.Option(None, "--output", "-o", help="Output JSON file path. Default: <FOOTY_OUTPUT_DIR>/<league>.json."),
-    headful: bool = typer.Option(False, "--headful", help="Show the browser window (default is headless)."),
-    slow_mo: int = typer.Option(0, "--slow-mo", help="Pause in ms between browser actions — pair with --headful to watch the agent work."),
+    league: str = typer.Option(
+        None,
+        "--league",
+        help='League name used in the JSON and mission prompt (e.g. "Premier League"). Default: derived from the URL.',
+    ),
+    seasons: str = typer.Option(
+        None,
+        "--seasons",
+        help='Comma-separated seasons, e.g. "2024-25,2023-24", or last:N. Default: last:10.',
+    ),
+    output: Path = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output JSON file path. Default: <FOOTY_OUTPUT_DIR>/<league>.json.",
+    ),
+    headful: bool = typer.Option(
+        False, "--headful", help="Show the browser window (default is headless)."
+    ),
+    slow_mo: int = typer.Option(
+        0,
+        "--slow-mo",
+        help="Pause in ms between browser actions — pair with --headful to watch the agent work.",
+    ),
     model: str = typer.Option(None, "--model", help="Claude model name. Default: FOOTY_MODEL env."),
     max_steps: int = typer.Option(100, "--max-steps", help="Cap on agent tool-call steps."),
     timeout_ms: int = typer.Option(None, "--timeout-ms", help="Browser navigation timeout in ms."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging: full tool-call params and result summaries."),
-    trace: bool = typer.Option(False, "--trace", help="Full-fidelity trace: complete tool-call params and full raw tool results (implies --verbose)."),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Debug logging: full tool-call params and result summaries."
+    ),
+    trace: bool = typer.Option(
+        False,
+        "--trace",
+        help="Full-fidelity trace: complete tool-call params and full raw tool results (implies --verbose).",
+    ),
 ) -> None:
     """Scrape a league's squads, managers, standings and results into a JSON file."""
     if install_browsers:
@@ -118,7 +142,9 @@ def run(
         )
     )
 
-    typer.echo(f"\nFinished: {result.steps} steps, {result.tool_calls} tool calls (stop: {result.stop_reason})")
+    typer.echo(
+        f"\nFinished: {result.steps} steps, {result.tool_calls} tool calls (stop: {result.stop_reason})"
+    )
     if result.total_cost_usd is not None:
         typer.echo(f"Cost      : ${result.total_cost_usd:.4f}")
     typer.echo(f"Data saved to {out_path}")
@@ -193,7 +219,16 @@ def _setup_logging(verbose: bool, trace: bool = False) -> None:
         diagnose=False,
     )
     # Keep noisy third-party stdlib loggers quiet unless verbose/trace.
-    for noisy in ("playwright", "claude_agent_sdk", "anthropic", "httpx", "httpcore", "openai", "uvicorn", "mcp"):
+    for noisy in (
+        "playwright",
+        "claude_agent_sdk",
+        "anthropic",
+        "httpx",
+        "httpcore",
+        "openai",
+        "uvicorn",
+        "mcp",
+    ):
         logging.getLogger(noisy).setLevel(logging.DEBUG if (verbose or trace) else logging.WARNING)
 
 

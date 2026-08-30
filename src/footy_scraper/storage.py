@@ -9,8 +9,6 @@ Design goals:
     is never left half-written.
 """
 
-
-
 import json
 import os
 import tempfile
@@ -42,7 +40,9 @@ class LeagueStore:
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self._data = LeagueData.model_validate(raw)
-            logger.info("Loaded existing store from {} ({} seasons)", self.path, len(self._data.seasons))
+            logger.info(
+                "Loaded existing store from {} ({} seasons)", self.path, len(self._data.seasons)
+            )
         except Exception:
             logger.exception("Failed to parse existing store {}; starting fresh", self.path)
 
@@ -179,7 +179,11 @@ class LeagueStore:
             "unchanged": unchanged,
             "manager_saved": manager_changed,
             "final_position": cs.final_position,
-            "already_saved": provided and added == 0 and updated == 0 and not manager_changed and not final_pos_changed,
+            "already_saved": provided
+            and added == 0
+            and updated == 0
+            and not manager_changed
+            and not final_pos_changed,
         }
 
 
@@ -200,14 +204,6 @@ def _merge_player(existing: Player, new: Player) -> Player:
             setattr(merged, field_name, value)
     merged.extra = {**existing.extra, **new.extra}
     return merged
-
-
-def _as_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, str):
-        return [value]
-    return [str(v) for v in value]
 
 
 def _utcnow() -> datetime:
