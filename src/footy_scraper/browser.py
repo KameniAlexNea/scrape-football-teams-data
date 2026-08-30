@@ -25,12 +25,14 @@ class BrowserSession:
         self,
         *,
         headless: bool = True,
+        slow_mo: int = 0,
         timeout_ms: int = 30_000,
         screenshot_dir: Path | None = None,
         user_agent: str | None = None,
         locale: str = "en-GB",
     ):
         self._headless = headless
+        self._slow_mo = max(0, int(slow_mo))
         self._timeout_ms = timeout_ms
         self._screenshot_dir = Path(screenshot_dir) if screenshot_dir else None
         self._user_agent = user_agent or _DEFAULT_UA
@@ -43,7 +45,10 @@ class BrowserSession:
     # ------------------------------------------------------------ lifecycle
     async def start(self) -> None:
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=self._headless)
+        self._browser = await self._pw.chromium.launch(
+            headless=self._headless,
+            slow_mo=self._slow_mo,
+        )
         self._context = await self._browser.new_context(
             viewport={"width": 1440, "height": 900},
             locale=self._locale,
@@ -52,7 +57,9 @@ class BrowserSession:
         )
         self.page = await self._context.new_page()
         self.page.set_default_timeout(self._timeout_ms)
-        logger.info("Browser started (headless={})", self._headless)
+        logger.info(
+            "Browser started (headless={}, slow_mo={}ms)", self._headless, self._slow_mo
+        )
 
     async def stop(self) -> None:
         for kind, target in (

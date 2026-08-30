@@ -12,6 +12,7 @@ self-hosted model server), plus ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_MODEL``.
 
 
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,17 @@ def _summarize_result(content: Any) -> str:
         )
     text = " ".join(text.split())
     return text[:160] + ("…" if len(text) > 160 else "")
+
+
+def _full_result(content: Any) -> str:
+    """Full text of an MCP tool result, untruncated (used at TRACE level)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            str(part.get("text", "")) for part in content if isinstance(part, dict)
+        )
+    return str(content)
 
 
 @dataclass
@@ -157,17 +169,26 @@ class ScrapeAgent:
                         if isinstance(block, ServerToolUseBlock):
                             tool_calls += 1
                             verb = _TOOL_VERBS.get(block.name, f"Calling {block.name}")
-                            args = _pretty_args(block.input or {})
+                            raw_args = block.input or {}
                             logger.info(
                                 "[step {}] {}{}",
                                 tool_calls,
                                 verb,
-                                f" — {args}" if args else "",
+                                f" — {_pretty_args(raw_args)}" if raw_args else "",
+                            )
+                            logger.debug(
+                                "    args: {}",
+                                json.dumps(raw_args, ensure_ascii=False, default=str),
                             )
                 elif isinstance(message, UserMessage):
                     for block in message.content:
                         if isinstance(block, ServerToolResultBlock):
-                            logger.debug("   ↳ {}", _summarize_result(block.content))
+                            logger.debug("    ↳ {}", _summarize_result(block.content))
+                            logger.log(
+                                "TRACE",
+                                "    full result: {}",
+                                _full_result(block.content),
+                            )
                 elif isinstance(message, ResultMessage) and not result_seen:
                     result_msg = message
                     if message.result:

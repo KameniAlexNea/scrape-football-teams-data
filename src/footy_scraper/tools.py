@@ -174,4 +174,24 @@ class ToolExecutor:
     async def _do_save_data(self, args: dict[str, Any]) -> dict[str, Any]:
         # save_data's schema fields are top-level (season, club, squad, ...),
         # so the whole argument dict IS the payload.
-        return self._store.apply_payload(args)
+        report = self._store.apply_payload(args)
+        bits: list[str] = [f"season={report.get('season')}"]
+        if report.get("club"):
+            bits.append(f"club={report['club']}")
+        if report.get("players_saved") is not None:
+            bits.append(f"players={report['players_saved']}")
+        if report.get("standings_updated"):
+            bits.append(f"standings={report['standings_updated']}")
+        if report.get("matches_added") or report.get("matches_updated"):
+            bits.append(
+                f"matches=+{report.get('matches_added', 0)}/~{report.get('matches_updated', 0)}"
+            )
+        if report.get("manager_saved"):
+            bits.append("manager=✓")
+        if report.get("final_position") is not None:
+            bits.append(f"final_position={report['final_position']}")
+        if report.get("errors"):
+            bits.append(f"errors={len(report['errors'])}")
+        logger.info("💾 saved {}", ", ".join(bits))
+        logger.log("TRACE", "save_data payload: {}", json.dumps(args, ensure_ascii=False, default=str))
+        return report

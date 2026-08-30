@@ -196,6 +196,14 @@ class LeagueStore:
                     )
                 except ValidationError as exc:
                     report["errors"].append(f"club {club} rejected: {_short_exc(exc)}")
+                else:
+                    # Enrich the report so the trace shows exactly what was saved.
+                    report["club"] = club
+                    if squad is not None:
+                        report["players_saved"] = len(squad)
+                    report["manager_saved"] = manager is not None
+                    if final_position is not None:
+                        report["final_position"] = final_position
 
         if payload.get("source") and club is None:
             # Nothing to attach a source to — just note it.

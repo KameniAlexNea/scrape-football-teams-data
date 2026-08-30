@@ -65,17 +65,19 @@ def run(
     seasons: str = typer.Option(None, "--seasons", help='Comma-separated seasons, e.g. "2024-25,2023-24", or last:N. Default: last:10.'),
     output: Path = typer.Option(None, "--output", "-o", help="Output JSON file path. Default: <FOOTY_OUTPUT_DIR>/<league>.json."),
     headful: bool = typer.Option(False, "--headful", help="Show the browser window (default is headless)."),
+    slow_mo: int = typer.Option(0, "--slow-mo", help="Pause in ms between browser actions — pair with --headful to watch the agent work."),
     model: str = typer.Option(None, "--model", help="Claude model name. Default: FOOTY_MODEL env."),
     max_steps: int = typer.Option(100, "--max-steps", help="Cap on agent tool-call steps."),
     timeout_ms: int = typer.Option(None, "--timeout-ms", help="Browser navigation timeout in ms."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging: full tool-call params and result summaries."),
+    trace: bool = typer.Option(False, "--trace", help="Full-fidelity trace: complete tool-call params and full raw tool results (implies --verbose)."),
 ) -> None:
     """Scrape a league's squads, managers, standings and results into a JSON file."""
     if install_browsers:
         _install_browsers()
         raise typer.Exit(code=0)
 
-    _setup_logging(verbose)
+    _setup_logging(verbose, trace)
 
     league_name = league or _derive_league(url)
 
@@ -105,7 +107,8 @@ def run(
             league=league_name,
             seasons=season_list,
             out_path=out_path,
-            headless=not headful,
+            headless=settings.headless and not headful,
+            slow_mo=slow_mo,
             model=eff_model,
             max_steps=max_steps,
             timeout_ms=eff_timeout,
@@ -135,6 +138,7 @@ async def _scrape(
     seasons: list[str],
     out_path: Path,
     headless: bool,
+    slow_mo: int = 0,
     model: str,
     max_steps: int,
     timeout_ms: int,
@@ -146,6 +150,7 @@ async def _scrape(
 
     async with BrowserSession(
         headless=headless,
+        slow_mo=slow_mo,
         timeout_ms=timeout_ms,
         screenshot_dir=Path(out_path).parent / "screenshots",
     ) as browser:
@@ -167,12 +172,18 @@ async def _scrape(
         return await agent.run(mission=mission)
 
 
-def _setup_logging(verbose: bool) -> None:
-    """Configure loguru for clear, end-user-friendly progress output."""
+def _setup_logging(verbose: bool, trace: bool = False) -> None:
+    """Configure loguru for end-user progress.
+
+    Levels:
+      - INFO  (default)  -> concise per-step progress + what was saved.
+      - DEBUG (--verbose) -> every tool call with its full params, plus result summaries.
+      - TRACE (--trace)   -> full-fidelity: complete tool-call params and full raw results.
+    """
     logger.remove()  # drop the default stderr handler; add our own
     logger.add(
         sys.stderr,
-        level="DEBUG" if verbose else "INFO",
+        level="TRACE" if trace else ("DEBUG" if verbose else "INFO"),
         colorize=None,  # auto-detect TTY so piped output stays clean
         format=(
             "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
@@ -181,9 +192,9 @@ def _setup_logging(verbose: bool) -> None:
         backtrace=False,
         diagnose=False,
     )
-    # Keep noisy third-party stdlib loggers quiet unless verbose.
+    # Keep noisy third-party stdlib loggers quiet unless verbose/trace.
     for noisy in ("playwright", "claude_agent_sdk", "anthropic", "httpx", "httpcore", "openai", "uvicorn", "mcp"):
-        logging.getLogger(noisy).setLevel(logging.DEBUG if verbose else logging.WARNING)
+        logging.getLogger(noisy).setLevel(logging.DEBUG if (verbose or trace) else logging.WARNING)
 
 
 if __name__ == "__main__":

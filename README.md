@@ -66,6 +66,35 @@ uv run footy-scrape "https://www.fotmob.com/leagues/47/overview/premier-league" 
 # Season shorthand: --seasons "last:5"
 ```
 
+### Watching the agent work
+The browser runs headless by default. To **see what the agent is doing live**, open a real
+browser window and slow it down:
+
+```bash
+uv run footy-scrape "https://www.fotmob.com/leagues/47/overview/premier-league" \
+  --league "Premier League" --headful --slow-mo 300
+```
+
+- `--headful` opens a visible Chromium window — you watch every page load, click, scroll and save.
+- `--slow-mo <ms>` inserts a pause between browser actions (default 0) so you can follow along.
+- Set `FOOTY_HEADLESS=false` in `.env` to default to a visible window without the flag.
+- The agent can also save screenshots to `data/<league>/screenshots/` via its `screenshot` tool.
+- On a machine with no display (e.g. a server), wrap headful runs with `xvfb-run`.
+
+### Reading the logs — three levels of detail
+The agent streams its execution with loguru. Pick the detail level you want:
+
+| Flag | Level | What you see |
+| --- | --- | --- |
+| *(none)* | INFO | Concise per-step progress + exactly what was saved, e.g. `💾 saved season=2024-25, club=Arsenal, players=2, manager=✓, final_position=2` |
+| `--verbose` | DEBUG | Every tool call with its **full params** (JSON), plus a result summary per step |
+| `--trace` | TRACE | **Full-fidelity**: complete tool-call params and the **full raw tool result** for every iteration (page snapshots, saved payloads, …) |
+
+```bash
+uv run footy-scrape "https://www.fotmob.com/leagues/47/overview/premier-league" \
+  --league "Premier League" --trace
+```
+
 The agent prints progress and saves as it goes; re-running the same league
 **merges** into the existing file rather than overwriting it.
 
