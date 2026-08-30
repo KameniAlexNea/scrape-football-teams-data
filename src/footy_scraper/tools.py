@@ -11,17 +11,15 @@ result.
 
 
 import json
-import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from claude_agent_sdk import SdkMcpTool
 from claude_agent_sdk import tool as sdk_tool
+from loguru import logger
 
 from footy_scraper.browser import BrowserSession
 from footy_scraper.storage import LeagueStore
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -139,7 +137,7 @@ class ToolExecutor:
             result = await handler(args or {})
             return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as exc:  # noqa: BLE001 - surface any failure to the model
-            logger.warning("Tool %s failed: %s", name, exc)
+            logger.warning("Tool {} failed: {}", name, exc)
             return json.dumps({"error": f"{type(exc).__name__}: {exc}"})
 
     # ------------------------------------------------------------ handlers

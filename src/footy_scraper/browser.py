@@ -3,14 +3,12 @@
 
 
 import asyncio
-import logging
 import re
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -54,7 +52,7 @@ class BrowserSession:
         )
         self.page = await self._context.new_page()
         self.page.set_default_timeout(self._timeout_ms)
-        logger.info("Browser started (headless=%s)", self._headless)
+        logger.info("Browser started (headless={})", self._headless)
 
     async def stop(self) -> None:
         for kind, target in (
@@ -70,7 +68,7 @@ class BrowserSession:
                 else:
                     await target.close()
             except Exception:
-                logger.debug("Non-fatal error while closing %s", kind, exc_info=True)
+                logger.opt(exception=True).debug("Non-fatal error while closing {}", kind)
         self.page = None
         self._context = None
         self._browser = None
@@ -94,7 +92,7 @@ class BrowserSession:
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
         except Exception:  # noqa: BLE001 - best-effort: continue even if the load event is slow
-            logger.warning("Timed out waiting for domcontentloaded on %s", url)
+            logger.warning("Timed out waiting for domcontentloaded on {}", url)
         # Give client-side / lazy content time to appear.
         try:
             await page.wait_for_load_state("networkidle", timeout=5_000)
@@ -126,7 +124,7 @@ class BrowserSession:
                 }"""
             )
         except Exception:
-            logger.debug("Lazy-load nudge failed", exc_info=True)
+            logger.opt(exception=True).debug("Lazy-load nudge failed")
         await self._settle(delay=0.5)
 
     async def snapshot(self, max_chars: int = 30_000) -> dict[str, Any]:
@@ -172,7 +170,7 @@ class BrowserSession:
         try:
             await locator.click(timeout=8000)
         except Exception:  # noqa: BLE001 - sticky headers/overlays intercept clicks; force through
-            logger.debug("Normal click intercepted; forcing click on %r", selector, exc_info=True)
+            logger.opt(exception=True).debug("Normal click intercepted; forcing click on {}", selector)
             await locator.click(force=True, timeout=8000)
         await self._settle()
         return {"action": "click", "url": page.url, "title": await page.title()}
@@ -187,7 +185,7 @@ class BrowserSession:
         try:
             await locator.click(timeout=8000)
         except Exception:  # noqa: BLE001 - sticky headers/overlays intercept clicks; force through
-            logger.debug("Normal click intercepted; forcing click on text %r", text, exc_info=True)
+            logger.opt(exception=True).debug("Normal click intercepted; forcing click on text {}", text)
             await locator.click(force=True, timeout=8000)
         await self._settle()
         return {"action": f"click_text({text!r})", "url": page.url, "title": await page.title()}
@@ -225,7 +223,7 @@ class BrowserSession:
         safe = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "shot"
         path = self._screenshot_dir / f"{safe}.png"
         await page.screenshot(path=str(path))
-        logger.info("Screenshot saved: %s", path)
+        logger.info("Screenshot saved: {}", path)
         return {"saved": True, "path": str(path)}
 
     # -------------------------------------------------------------- helpers

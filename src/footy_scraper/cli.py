@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import typer
+from loguru import logger
 
 from footy_scraper.agent import AgentResult, ScrapeAgent
 from footy_scraper.browser import BrowserSession
@@ -32,7 +33,6 @@ app = typer.Typer(
     "like a human and saves the data to JSON.",
     no_args_is_help=True,
 )
-logger = logging.getLogger("footy_scraper")
 
 
 def _slug(value: str) -> str:
@@ -150,7 +150,7 @@ async def _scrape(
         screenshot_dir=Path(out_path).parent / "screenshots",
     ) as browser:
         nav = await browser.goto(url)
-        logger.info("Opened %s -> %s", url, nav["title"])
+        logger.info("Opened {} -> {}", url, nav["title"])
 
         executor = ToolExecutor(browser, store, snapshot_max_chars=snapshot_max_chars)
         system_prompt = build_system_prompt(output_path=out_path)
@@ -168,14 +168,21 @@ async def _scrape(
 
 
 def _setup_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
+    """Configure loguru for clear, end-user-friendly progress output."""
+    logger.remove()  # drop the default stderr handler; add our own
+    logger.add(
+        sys.stderr,
+        level="DEBUG" if verbose else "INFO",
+        colorize=None,  # auto-detect TTY so piped output stays clean
+        format=(
+            "<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | "
+            "<cyan>{name}:{line}</cyan> - <level>{message}</level>"
+        ),
+        backtrace=False,
+        diagnose=False,
     )
-    # Keep noisy third-party loggers quiet unless verbose.
-    for noisy in ("playwright", "claude_agent_sdk", "anthropic", "httpx", "httpcore", "openai"):
+    # Keep noisy third-party stdlib loggers quiet unless verbose.
+    for noisy in ("playwright", "claude_agent_sdk", "anthropic", "httpx", "httpcore", "openai", "uvicorn", "mcp"):
         logging.getLogger(noisy).setLevel(logging.DEBUG if verbose else logging.WARNING)
 
 

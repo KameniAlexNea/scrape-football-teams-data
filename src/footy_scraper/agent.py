@@ -12,24 +12,65 @@ self-hosted model server), plus ``ANTHROPIC_API_KEY`` and ``ANTHROPIC_MODEL``.
 
 
 
-import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
+    ServerToolResultBlock,
     ServerToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
     query,
 )
+from loguru import logger
 
 from footy_scraper.tools import ToolExecutor
 
-logger = logging.getLogger(__name__)
-
 _MCP_SERVER_NAME = "footy_tools"
+
+# Human-friendly verb for each tool, so the progress log reads naturally.
+_TOOL_VERBS: dict[str, str] = {
+    "navigate": "Opening page",
+    "page_snapshot": "Reading page",
+    "click": "Clicking element",
+    "click_text": "Clicking text",
+    "select_option": "Selecting option",
+    "fill": "Typing",
+    "scroll": "Scrolling",
+    "wait": "Waiting",
+    "screenshot": "Taking screenshot",
+    "save_data": "Saving data",
+}
+
+
+def _pretty_args(args: dict[str, Any] | None) -> str:
+    """Compact, truncated ``key=value`` summary of a tool call's arguments."""
+    if not args:
+        return ""
+    parts: list[str] = []
+    for key, value in args.items():
+        text = str(value)
+        if len(text) > 60:
+            text = text[:57] + "…"
+        parts.append(f"{key}={text}")
+    return ", ".join(parts)
+
+
+def _summarize_result(content: Any) -> str:
+    """Shorten an MCP tool-result payload for the progress log."""
+    text = ""
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        text = " ".join(
+            str(part.get("text", "")) for part in content if isinstance(part, dict)
+        )
+    text = " ".join(text.split())
+    return text[:160] + ("…" if len(text) > 160 else "")
 
 
 @dataclass
@@ -100,6 +141,13 @@ class ScrapeAgent:
         result_msg: ResultMessage | None = None
         result_seen = False
 
+        logger.info(
+            "▶ Starting agent run — model={}, max_turns={}, endpoint={}",
+            self._model,
+            self._max_steps,
+            self._base_url or "default",
+        )
+
         try:
             # The SDK already executes in-process MCP tools for us; the stream
             # lets us count steps and keep the last text as the final summary.
@@ -108,7 +156,18 @@ class ScrapeAgent:
                     for block in message.content:
                         if isinstance(block, ServerToolUseBlock):
                             tool_calls += 1
-                            logger.info("[agent] tool call #%d: %s", tool_calls, block.name)
+                            verb = _TOOL_VERBS.get(block.name, f"Calling {block.name}")
+                            args = _pretty_args(block.input or {})
+                            logger.info(
+                                "[step {}] {}{}",
+                                tool_calls,
+                                verb,
+                                f" — {args}" if args else "",
+                            )
+                elif isinstance(message, UserMessage):
+                    for block in message.content:
+                        if isinstance(block, ServerToolResultBlock):
+                            logger.debug("   ↳ {}", _summarize_result(block.content))
                 elif isinstance(message, ResultMessage) and not result_seen:
                     result_msg = message
                     if message.result:
@@ -124,11 +183,18 @@ class ScrapeAgent:
             )
 
         if result_msg is not None and result_msg.is_error:
-            logger.warning("Agent returned an error result: %s", result_msg.result)
+            logger.warning("⚠ Claude Code returned an error result: {}", result_msg.result)
             final_text = f"Claude Code returned an error result: {result_msg.result or ''}"
 
         steps = (result_msg.num_turns if result_msg is not None else 0) or tool_calls
         stop_reason = result_msg.stop_reason if result_msg is not None else "end_turn"
+
+        logger.success(
+            "✔ Finished — {} steps, {} tool calls (stop: {})",
+            steps,
+            tool_calls,
+            stop_reason or "end_turn",
+        )
 
         return AgentResult(
             steps=steps,

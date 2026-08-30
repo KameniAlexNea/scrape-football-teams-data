@@ -76,6 +76,9 @@ The agent prints progress and saves as it goes; re-running the same league
   wording the site uses, handles season selectors, waits for lazy content, and dismisses cookie banners.
 - Positions, club names and player names are recorded **exactly as the site writes them** — no
   translation or normalisation.
+- Progress is streamed live with **loguru** (timestamped, coloured): each agent step is logged as it
+  happens (`[step 3] Opening page — url=…`, `Saving data — season=2024-25, club=Arsenal`, …), plus a
+  final summary with step/tool counts. Use `--verbose` for debug-level detail (page reads, tool results).
 
 ## Output schema (per league JSON)
 

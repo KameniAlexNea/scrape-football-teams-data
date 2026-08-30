@@ -14,7 +14,6 @@ Design goals:
 
 
 import json
-import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -32,8 +31,7 @@ from footy_scraper.models import (
     SeasonData,
     Standing,
 )
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class LeagueStore:
@@ -48,9 +46,9 @@ class LeagueStore:
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             self._data = LeagueData.model_validate(raw)
-            logger.info("Loaded existing store from %s (%d seasons)", self.path, len(self._data.seasons))
+            logger.info("Loaded existing store from {} ({} seasons)", self.path, len(self._data.seasons))
         except Exception:
-            logger.exception("Failed to parse existing store %s; starting fresh", self.path)
+            logger.exception("Failed to parse existing store {}; starting fresh", self.path)
 
     def save(self) -> Path:
         """Atomically persist the current state to disk."""
@@ -66,7 +64,7 @@ class LeagueStore:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             raise
-        logger.debug("Saved store to %s", self.path)
+        logger.debug("Saved store to {}", self.path)
         return self.path
 
     # ------------------------------------------------------------- accessors
