@@ -44,7 +44,9 @@ _TOOL_VERBS: dict[str, str] = {
     "scroll": "Scrolling",
     "wait": "Waiting",
     "screenshot": "Taking screenshot",
-    "save_data": "Saving data",
+    "save_standing": "Saving standings",
+    "save_squad": "Saving squad",
+    "save_match": "Saving matches",
 }
 
 

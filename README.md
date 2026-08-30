@@ -19,7 +19,8 @@ footy-scrape <league-link> --league "Premier League"
    │
    ├─ BrowserSession (Playwright Chromium, headless)
    ├─ ToolExecutor  ── navigate / page_snapshot / click / click_text /
-   │                  select_option / fill / scroll / wait / screenshot / save_data
+   │                  select_option / fill / scroll / wait / screenshot /
+   │                  save_standing / save_squad / save_match
    ├─ ScrapeAgent  ── claude-agent-sdk: Claude Code subprocess calling our tools
    │                  through an in-process MCP server; streams every step back
    ├─ prompts      ── discovery-first: read the page, act like a human, save what you see
@@ -86,7 +87,7 @@ The agent streams its execution with loguru. Pick the detail level you want:
 
 | Flag | Level | What you see |
 | --- | --- | --- |
-| *(none)* | INFO | Concise per-step progress + exactly what was saved, e.g. `💾 saved season=2024-25, club=Arsenal, players=2, manager=✓, final_position=2` |
+| *(none)* | INFO | Concise per-step progress + exactly what was saved, e.g. `� saved: 2024-25 standings (20 rows; +20 added)`, `👥 saved: 2024-25 squad for Arsenal (31 players total)`, or `already saved: 2024-25 matches (380 rows)` |
 | `--verbose` | DEBUG | Every tool call with its **full params** (JSON), plus a result summary per step |
 | `--trace` | TRACE | **Full-fidelity**: complete tool-call params and the **full raw tool result** for every iteration (page snapshots, saved payloads, …) |
 

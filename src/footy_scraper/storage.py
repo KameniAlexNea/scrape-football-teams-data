@@ -1,12 +1,10 @@
 """Validating, incremental JSON storage for one league.
 
 Design goals:
-  * *Iterative* — the agent calls ``apply_payload`` after every extraction and
-    each call persists to disk, so interrupted runs keep their progress.
-  * *Merging* — data is upserted by (season, club); re-saving the same entity
-    updates it instead of duplicating it.
-  * *Best effort* — a malformed fragment is recorded as an error and skipped,
-    never crashing the run.
+  * *Iterative* — every ``save_*`` call persists to disk, so interrupted runs
+    keep their progress.
+  * *Idempotent* — re-saving identical data is detected and reported as
+    ``already_saved``; changed data is merged instead of duplicated.
   * *Atomic* — writes go to a temp file then ``os.replace``, so the JSON file
     is never left half-written.
 """
@@ -19,8 +17,6 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-from pydantic import ValidationError
 
 from footy_scraper.models import (
     ClubSeason,
@@ -75,32 +71,63 @@ class LeagueStore:
         return self._data.model_dump(mode="json")
 
     # --------------------------------------------------------------- upserts
-    def upsert_standings(self, season: str, standings: list[Standing]) -> int:
+    def save_standings(self, season: str, standings: list[Standing]) -> dict[str, Any]:
+        """Upsert a season's final table; returns an idempotency-aware status."""
         sd = self.season(season)
         by_club = {s.club: s for s in sd.standings}
-        by_club.update({s.club: s for s in standings})
+        added = updated = unchanged = 0
+        for row in standings:
+            existing = by_club.get(row.club)
+            if existing is None:
+                by_club[row.club] = row
+                added += 1
+            elif existing.model_dump() == row.model_dump():
+                unchanged += 1
+            else:
+                by_club[row.club] = row
+                updated += 1
         sd.standings = [by_club[k] for k in by_club]
-        return len(standings)
+        self.save()
+        return {
+            "rows": len(standings),
+            "added": added,
+            "updated": updated,
+            "unchanged": unchanged,
+            "already_saved": added == 0 and updated == 0 and len(standings) > 0,
+        }
 
-    def upsert_matches(self, season: str, matches: list[Match]) -> tuple[int, int]:
-        """Return (added, updated) counts. Matches are keyed by (date, home, away)."""
+    def save_matches(self, season: str, matches: list[Match]) -> dict[str, Any]:
+        """Upsert match results; returns an idempotency-aware status.
+
+        Matches are keyed by (date, home_team, away_team).
+        """
         sd = self.season(season)
         keyed: dict[tuple[Any, ...], Match] = {}
         for m in sd.matches:
             keyed[_match_key(m)] = m
-        added = updated = 0
+        added = updated = unchanged = 0
         for m in matches:
             key = _match_key(m)
-            if key in keyed:
-                keyed[key] = m
-                updated += 1
-            else:
+            existing = keyed.get(key)
+            if existing is None:
                 keyed[key] = m
                 added += 1
+            elif existing.model_dump() == m.model_dump():
+                unchanged += 1
+            else:
+                keyed[key] = m
+                updated += 1
         sd.matches = list(keyed.values())
-        return added, updated
+        self.save()
+        return {
+            "rows": len(matches),
+            "added": added,
+            "updated": updated,
+            "unchanged": unchanged,
+            "already_saved": added == 0 and updated == 0 and len(matches) > 0,
+        }
 
-    def upsert_club_season(
+    def save_squad(
         self,
         season: str,
         club: str,
@@ -109,19 +136,33 @@ class LeagueStore:
         manager: Manager | None = None,
         final_position: int | None = None,
         sources: list[str] | None = None,
-    ) -> int:
+    ) -> dict[str, Any]:
+        """Upsert one club's squad/manager for a season; idempotency-aware.
+
+        Players merge field-by-field by name (iterative accumulation).
+        """
         sd = self.season(season)
         cs = sd.clubs.get(club) or ClubSeason(club=club, season=season)
         cs.club = club
         cs.season = season
+        added = updated = unchanged = 0
         if squad is not None:
             by_name = {p.name: p for p in cs.squad}
             for p in squad:
                 existing = by_name.get(p.name)
-                by_name[p.name] = _merge_player(existing, p) if existing is not None else p
+                if existing is None:
+                    by_name[p.name] = p
+                    added += 1
+                elif existing.model_dump() == p.model_dump():
+                    unchanged += 1
+                else:
+                    by_name[p.name] = _merge_player(existing, p)
+                    updated += 1
             cs.squad = [by_name[k] for k in by_name]
+        manager_changed = manager is not None and cs.manager != manager
         if manager is not None:
             cs.manager = manager
+        final_pos_changed = final_position is not None and cs.final_position != final_position
         if final_position is not None:
             cs.final_position = final_position
         if sources:
@@ -129,88 +170,17 @@ class LeagueStore:
                 if src and src not in cs.sources:
                     cs.sources.append(src)
         sd.clubs[club] = cs
-        return 1
-
-    # -------------------------------------------------------------- payloads
-    def apply_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Apply one agent-supplied fragment (see prompts.py for the shape).
-
-        Returns a report dict; errors are recorded but never raised.
-        """
-        season = payload.get("season")
-        if not season or not str(season).strip():
-            return {"applied": False, "error": "payload missing a non-empty 'season'"}
-
-        report: dict[str, Any] = {"season": str(season), "applied": True, "warnings": [], "errors": []}
-
-        if "standings" in payload:
-            try:
-                standings = [Standing.model_validate(s) for s in payload["standings"]]
-            except ValidationError as exc:
-                report["errors"].append(f"standings invalid: {_short_exc(exc)}")
-            else:
-                report["standings_updated"] = self.upsert_standings(str(season), standings)
-
-        if "matches" in payload:
-            try:
-                matches = [Match.model_validate(m) for m in payload["matches"]]
-            except ValidationError as exc:
-                report["errors"].append(f"matches invalid: {_short_exc(exc)}")
-            else:
-                added, updated = self.upsert_matches(str(season), matches)
-                report["matches_added"], report["matches_updated"] = added, updated
-
-        club = payload.get("club")
-        if club is not None:
-            if not isinstance(club, str) or not club.strip():
-                report["errors"].append("'club' must be a non-empty string")
-            else:
-                club = club.strip()
-                squad: list[Player] | None = None
-                manager: Manager | None = None
-                final_position: int | None = None
-                sources = _as_list(payload.get("source"))
-
-                if "squad" in payload:
-                    try:
-                        squad = [Player.model_validate(p) for p in payload["squad"]]
-                    except ValidationError as exc:
-                        report["errors"].append(f"squad for {club} invalid: {_short_exc(exc)}")
-
-                if "manager" in payload and payload["manager"] is not None:
-                    try:
-                        manager = Manager.model_validate(payload["manager"])
-                    except ValidationError as exc:
-                        report["errors"].append(f"manager for {club} invalid: {_short_exc(exc)}")
-
-                if payload.get("final_position") is not None:
-                    try:
-                        final_position = int(payload["final_position"])
-                    except (TypeError, ValueError):
-                        report["errors"].append(f"final_position for {club} not an int")
-
-                try:
-                    self.upsert_club_season(
-                        str(season), club, squad=squad, manager=manager,
-                        final_position=final_position, sources=sources,
-                    )
-                except ValidationError as exc:
-                    report["errors"].append(f"club {club} rejected: {_short_exc(exc)}")
-                else:
-                    # Enrich the report so the trace shows exactly what was saved.
-                    report["club"] = club
-                    if squad is not None:
-                        report["players_saved"] = len(squad)
-                    report["manager_saved"] = manager is not None
-                    if final_position is not None:
-                        report["final_position"] = final_position
-
-        if payload.get("source") and club is None:
-            # Nothing to attach a source to — just note it.
-            report["warnings"].append("source given without a club; ignored")
-
         self.save()
-        return report
+        provided = squad is not None or manager is not None or final_position is not None
+        return {
+            "players": len(cs.squad),
+            "added": added,
+            "updated": updated,
+            "unchanged": unchanged,
+            "manager_saved": manager_changed,
+            "final_position": cs.final_position,
+            "already_saved": provided and added == 0 and updated == 0 and not manager_changed and not final_pos_changed,
+        }
 
 
 def _match_key(m: Match) -> tuple[Any, ...]:
@@ -238,10 +208,6 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
     return [str(v) for v in value]
-
-
-def _short_exc(exc: ValidationError) -> str:
-    return "; ".join(f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()[:5])
 
 
 def _utcnow() -> datetime:

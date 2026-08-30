@@ -18,7 +18,7 @@ from pathlib import Path
 def build_system_prompt(*, output_path: Path) -> str:
     """Persistent agent instructions (how to browse, save, finish)."""
     return f"""You are an autonomous web-research agent. You control a real browser through the tools:
-navigate, page_snapshot, click, click_text, select_option, fill, scroll, wait, screenshot and save_data.
+navigate, page_snapshot, click, click_text, select_option, fill, scroll, wait, screenshot, save_standing, save_squad and save_match.
 
 YOUR JOB
 --------
@@ -26,7 +26,7 @@ The first user message tells you:
   * the LEAGUE you are working on,
   * the LINK the browser was opened on,
   * the SEASONS to cover.
-Extract the requested data from that site and save it with save_data. Work best-effort: if the site
+Extract the requested data from that site and save it with the save_standing / save_squad / save_match tools. Work best-effort: if the site
 does not expose some history, capture what exists and note the gap. NEVER invent data.
 
 BROWSING LIKE A HUMAN
@@ -55,25 +55,35 @@ QUALITY RULES
 
 SAVING PROTOCOL (critical)
 --------------------------
-As soon as you have data, call save_data with a payload like:
+Use the three dedicated save tools — one per data kind. Each is idempotent: if you try to save
+something that is already stored, it replies "already saved …" and you can move on.
 
-  {{
-    "season": "2024-25",
-    "club": "Arsenal",                       // omit when the payload is only standings/matches
-    "source": "https://...",                 // the page you extracted from (recommended)
-    "squad": [ {{ "name": "Bukayo Saka", "position": "Right Winger", "age": 24, "shirt_number": 7 }} ],
-    "manager": {{ "name": "Mikel Arteta", "nationality": "Spain" }},
-    "final_position": 2,
-    "standings": [ {{ "club": "Arsenal", "position": 2, "played": 38, "won": 24, "drawn": 6, "lost": 8,
-                      "goals_for": 79, "goals_against": 36, "goal_difference": 43, "points": 78 }} ],
-    "matches": [ {{ "date": "2024-08-17", "home_team": "Arsenal", "away_team": "Wolves",
-                    "home_score": 2, "away_score": 0 }} ]
-  }}
+- save_standing — the full end-of-season table for a season:
+    {{
+      "season": "2024-25",
+      "standings": [ {{ "club": "Arsenal", "position": 2, "played": 38, "won": 24, "drawn": 6,
+                        "lost": 8, "goals_for": 79, "goals_against": 36, "goal_difference": 43, "points": 78 }} ],
+      "source": "https://..."
+    }}
+- save_squad — one club's players (+ manager and final position) for a season:
+    {{
+      "season": "2024-25", "club": "Arsenal",
+      "squad": [ {{ "name": "Bukayo Saka", "position": "Right Winger", "age": 24, "shirt_number": 7 }} ],
+      "manager": {{ "name": "Mikel Arteta", "nationality": "Spain" }},
+      "final_position": 2,
+      "source": "https://..."
+    }}
+- save_match — a batch of results with scores for a season:
+    {{
+      "season": "2024-25",
+      "matches": [ {{ "date": "2024-08-17", "home_team": "Arsenal", "away_team": "Wolves",
+                      "home_score": 2, "away_score": 0 }} ],
+      "source": "https://..."
+    }}
 
 Save early and often — every save persists to disk ({output_path}), so partial progress survives
-interruption. Re-saving new/updated data is fine: it merges by season + club. A typical club visit
-produces at least two save_data calls (standings + squad/manager), and results pages produce one
-per page of matches.
+interruption. Re-saving identical data is harmless (the tool replies "already saved …"); re-saving a
+club's squad with a few extra players simply merges them.
 
 COMPLETION
 ----------
@@ -81,8 +91,9 @@ When you have covered every target season as best you can, stop browsing and wri
 (no more tool calls) summarising: which seasons and clubs were captured, what is missing and why
 (paywalls, missing history, login walls), and anything the user should know.
 
-Be thorough but efficient — you have a limited number of steps. Prioritise: standings first, then
-current-season squads, then other seasons, then results."""
+Be thorough but efficient — you have a limited number of steps. Work ONE season at a time, most
+recent first: finish the current season (final table, every club's squad, all results) before
+moving to the previous one."""
 
 
 def build_mission(*, league: str, url: str, seasons: list[str]) -> str:
@@ -106,5 +117,8 @@ OBJECTIVE — for each target season, collect and save:
 4. MATCH RESULTS — each match with scores: home team, away team, home score, away score,
    plus date and round when available.
 
+Work ONE season at a time, most recent first — finish the current season (table, all squads,
+all results) before moving to the previous one.
+
 You have never seen this site before. Start with page_snapshot, look around like a
-human, discover where each piece of data lives, and save it with save_data as you go."""
+human, discover where each piece of data lives, and save it with the save tools as you go."""

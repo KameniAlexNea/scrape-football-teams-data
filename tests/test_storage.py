@@ -1,3 +1,4 @@
+from footy_scraper.models import Manager, Match, Player, Standing
 from footy_scraper.storage import LeagueStore
 
 
@@ -5,29 +6,21 @@ def _store(tmp_path):
     return LeagueStore(tmp_path / "pl.json", "Premier League")
 
 
-def test_upsert_standings_squad_manager_matches_and_reload(tmp_path):
+def test_save_standings_squad_matches_and_reload(tmp_path):
     store = _store(tmp_path)
-    store.apply_payload(
-        {"season": "2024-25", "standings": [{"club": "Arsenal", "position": 2, "points": 78}]}
+    store.save_standings("2024-25", [Standing(club="Arsenal", position=2, points=78)])
+    store.save_squad(
+        "2024-25",
+        "Arsenal",
+        squad=[Player(name="Saka", position="Right Winger", shirt_number=7, age=23)],
+        manager=Manager(name="Arteta", nationality="Spain"),
+        final_position=2,
+        sources=["https://premierleague.com/en/clubs"],
     )
-    store.apply_payload(
-        {
-            "season": "2024-25",
-            "club": "Arsenal",
-            "source": "https://premierleague.com/en/clubs",
-            "squad": [{"name": "Saka", "position": "Right Winger", "shirt_number": 7, "age": 23}],
-            "manager": {"name": "Arteta", "nationality": "Spain"},
-            "final_position": 2,
-        }
+    store.save_matches(
+        "2024-25",
+        [Match(home_team="Arsenal", away_team="Wolves", home_score=2, away_score=0)],
     )
-    store.apply_payload(
-        {"season": "2024-25", "matches": [{"home_team": "Arsenal", "away_team": "Wolves", "home_score": 2, "away_score": 0}]}
-    )
-    # Duplicate the same match — must dedupe, not append.
-    store.apply_payload(
-        {"season": "2024-25", "matches": [{"home_team": "Arsenal", "away_team": "Wolves", "home_score": 2, "away_score": 0}]}
-    )
-
     # Reload from disk to prove persistence.
     store2 = LeagueStore(tmp_path / "pl.json", "Premier League")
     sd = store2.season("2024-25")
@@ -40,35 +33,54 @@ def test_upsert_standings_squad_manager_matches_and_reload(tmp_path):
     assert sd.standings[0].club == "Arsenal"
 
 
-def test_payload_without_club_only_updates_standings(tmp_path):
+def test_standings_already_saved(tmp_path):
     store = _store(tmp_path)
-    rep = store.apply_payload({"season": "2024-25", "standings": [{"club": "Chelsea", "position": 6}]})
-    assert rep["applied"] is True
-    assert not rep["errors"]
-    assert "Chelsea" in store.season("2024-25").standings[0].club
+    rows = [Standing(club="Arsenal", position=2, points=78)]
+    first = store.save_standings("2024-25", rows)
+    second = store.save_standings("2024-25", rows)
+    assert first["already_saved"] is False
+    assert first["added"] == 1
+    assert second["already_saved"] is True
+    assert second["added"] == 0 and second["updated"] == 0
 
 
-def test_malformed_fragment_is_recorded_not_raised(tmp_path):
+def test_standings_updated_when_row_changes(tmp_path):
     store = _store(tmp_path)
-    rep = store.apply_payload(
-        {"season": "2024-25", "standings": [{"club": 123, "position": "not-an-int"}]}
-    )
-    assert rep["errors"], "expected validation errors to be recorded"
-    assert store.season("2024-25").standings == []
+    store.save_standings("2024-25", [Standing(club="Arsenal", position=2, points=78)])
+    changed = store.save_standings("2024-25", [Standing(club="Arsenal", position=2, points=80)])
+    assert changed["updated"] == 1
+    assert changed["already_saved"] is False
+    assert store.season("2024-25").standings[0].points == 80
 
 
-def test_missing_season_rejected(tmp_path):
+def test_matches_dedupe_and_already_saved(tmp_path):
     store = _store(tmp_path)
-    rep = store.apply_payload({"club": "Arsenal"})
-    assert rep["applied"] is False
+    matches = [Match(home_team="Arsenal", away_team="Wolves", home_score=2, away_score=0)]
+    store.save_matches("2024-25", matches)
+    second = store.save_matches("2024-25", matches)
+    assert second["already_saved"] is True
+    assert len(store.season("2024-25").matches) == 1
 
 
 def test_squad_merge_by_player_name(tmp_path):
     store = _store(tmp_path)
-    store.apply_payload({"season": "2024-25", "club": "Arsenal", "squad": [{"name": "Saka", "shirt_number": 7}]})
-    store.apply_payload({"season": "2024-25", "club": "Arsenal", "squad": [{"name": "Saka", "age": 23}, {"name": "Odegaard"}]})
+    store.save_squad("2024-25", "Arsenal", squad=[Player(name="Saka", shirt_number=7)])
+    store.save_squad(
+        "2024-25",
+        "Arsenal",
+        squad=[Player(name="Saka", age=23), Player(name="Odegaard")],
+    )
     squad = store.season("2024-25").clubs["Arsenal"].squad
     assert len(squad) == 2
     by_name = {p.name: p for p in squad}
     assert by_name["Saka"].age == 23  # updated, not duplicated
     assert by_name["Saka"].shirt_number == 7  # previous fields preserved
+
+
+def test_squad_already_saved(tmp_path):
+    store = _store(tmp_path)
+    squad = [Player(name="Saka", shirt_number=7, age=23)]
+    store.save_squad("2024-25", "Arsenal", squad=squad, manager=Manager(name="Arteta"))
+    second = store.save_squad("2024-25", "Arsenal", squad=squad, manager=Manager(name="Arteta"))
+    assert second["already_saved"] is True
+

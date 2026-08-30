@@ -17,8 +17,10 @@ from typing import Any, Callable
 from claude_agent_sdk import SdkMcpTool
 from claude_agent_sdk import tool as sdk_tool
 from loguru import logger
+from pydantic import ValidationError
 
 from footy_scraper.browser import BrowserSession
+from footy_scraper.models import Manager, Match, Player, Standing
 from footy_scraper.storage import LeagueStore
 
 
@@ -31,6 +33,18 @@ class ToolSpec:
 
 def _obj(properties: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": required or []}
+
+
+def _short_validation(exc: ValidationError) -> str:
+    return "; ".join(
+        f"{'.'.join(str(l) for l in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+    )
+
+
+def _sources(value: Any) -> list[str]:
+    if value is None:
+        return []
+    return [value] if isinstance(value, str) else [str(v) for v in value]
 
 
 BROWSE_TOOLS: list[ToolSpec] = [
@@ -80,20 +94,45 @@ BROWSE_TOOLS: list[ToolSpec] = [
         _obj({"name": {"type": "string", "description": "Short filename stem, e.g. 'arsenal-squad-2024'"}}, ["name"]),
     ),
     ToolSpec(
-        "save_data",
-        "Persist an extracted fragment into the league JSON file. Call this early and often; it merges by season + club.",
+        "save_standing",
+        "Save a season's final league table (standings): one row per club with its final position. "
+        "Call once per season. Re-saving identical data returns 'already saved'.",
         _obj(
             {
                 "season": {"type": "string", "description": "Season label like '2024-25'"},
-                "club": {"type": "string", "description": "Club name as shown on the site (omit for standings/matches-only payloads)"},
+                "standings": {"type": "array", "description": "End-of-season table rows: club (required), position (required), played, won, drawn, lost, goals_for, goals_against, goal_difference, points"},
                 "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
-                "final_position": {"type": "integer", "description": "Club's final league position for this season"},
-                "squad": {"type": "array", "description": "List of player objects: name (required), shirt_number, position, age, nationality, height_cm, joined, contract_until, market_value, injury"},
-                "manager": {"type": "object", "description": "Manager object: name (required), nationality, appointed"},
-                "standings": {"type": "array", "description": "Full end-of-season table rows: club (required), position (required), played, won, drawn, lost, goals_for, goals_against, goal_difference, points"},
-                "matches": {"type": "array", "description": "Match results: home_team (required), away_team (required), home_score, away_score, date, round"},
             },
-            ["season"],
+            ["season", "standings"],
+        ),
+    ),
+    ToolSpec(
+        "save_squad",
+        "Save a club's squad (and optionally its manager and final position) for a season. "
+        "Call once per club per season. Re-saving identical data returns 'already saved'.",
+        _obj(
+            {
+                "season": {"type": "string", "description": "Season label like '2024-25'"},
+                "club": {"type": "string", "description": "Club name exactly as the site shows it"},
+                "squad": {"type": "array", "description": "Players: name (required), shirt_number, position, age, nationality, height_cm, joined, contract_until, market_value, injury"},
+                "manager": {"type": "object", "description": "Manager/head coach: name (required), nationality, appointed, age"},
+                "final_position": {"type": "integer", "description": "Club's final league position for this season"},
+                "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
+            },
+            ["season", "club"],
+        ),
+    ),
+    ToolSpec(
+        "save_match",
+        "Save match results with scores for a season. Call per page/section of results. "
+        "Re-saving identical matches returns 'already saved'.",
+        _obj(
+            {
+                "season": {"type": "string", "description": "Season label like '2024-25'"},
+                "matches": {"type": "array", "description": "Matches: home_team (required), away_team (required), home_score, away_score, date, round"},
+                "source": {"type": "string", "description": "URL you extracted this from (recommended)"},
+            },
+            ["season", "matches"],
         ),
     ),
 ]
@@ -171,27 +210,96 @@ class ToolExecutor:
     async def _do_screenshot(self, args: dict[str, Any]) -> dict[str, Any]:
         return await self._browser.screenshot(args.get("name", "page"))
 
-    async def _do_save_data(self, args: dict[str, Any]) -> dict[str, Any]:
-        # save_data's schema fields are top-level (season, club, squad, ...),
-        # so the whole argument dict IS the payload.
-        report = self._store.apply_payload(args)
-        bits: list[str] = [f"season={report.get('season')}"]
-        if report.get("club"):
-            bits.append(f"club={report['club']}")
-        if report.get("players_saved") is not None:
-            bits.append(f"players={report['players_saved']}")
-        if report.get("standings_updated"):
-            bits.append(f"standings={report['standings_updated']}")
-        if report.get("matches_added") or report.get("matches_updated"):
-            bits.append(
-                f"matches=+{report.get('matches_added', 0)}/~{report.get('matches_updated', 0)}"
+    async def _do_save_standing(self, args: dict[str, Any]) -> dict[str, Any]:
+        season = str(args.get("season", "")).strip()
+        raw = args.get("standings")
+        if not season:
+            return {"error": "missing 'season'"}
+        if not isinstance(raw, list) or not raw:
+            return {"error": "missing 'standings' array (list of table rows)"}
+        try:
+            standings = [Standing.model_validate(row) for row in raw]
+        except ValidationError as exc:
+            return {"error": f"standings invalid: {_short_validation(exc)}"}
+        res = self._store.save_standings(season, standings)
+        if res["already_saved"]:
+            msg = f"already saved: {season} standings ({res['rows']} rows)"
+        else:
+            msg = (
+                f"saved: {season} standings ({res['rows']} rows; "
+                f"+{res['added']} added, {res['updated']} updated)"
             )
-        if report.get("manager_saved"):
-            bits.append("manager=✓")
-        if report.get("final_position") is not None:
-            bits.append(f"final_position={report['final_position']}")
-        if report.get("errors"):
-            bits.append(f"errors={len(report['errors'])}")
-        logger.info("💾 saved {}", ", ".join(bits))
-        logger.log("TRACE", "save_data payload: {}", json.dumps(args, ensure_ascii=False, default=str))
-        return report
+        logger.info("🗒 {}", msg)
+        logger.log("TRACE", "save_standing payload: {}", json.dumps(args, ensure_ascii=False, default=str))
+        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
+
+    async def _do_save_squad(self, args: dict[str, Any]) -> dict[str, Any]:
+        season = str(args.get("season", "")).strip()
+        club = args.get("club")
+        if not season:
+            return {"error": "missing 'season'"}
+        if not club or not str(club).strip():
+            return {"error": "missing 'club'"}
+        club = str(club).strip()
+        squad: list[Player] | None = None
+        if "squad" in args:
+            try:
+                squad = [Player.model_validate(p) for p in args["squad"]]
+            except ValidationError as exc:
+                return {"error": f"squad invalid: {_short_validation(exc)}"}
+        manager: Manager | None = None
+        if args.get("manager") is not None:
+            try:
+                manager = Manager.model_validate(args["manager"])
+            except ValidationError as exc:
+                return {"error": f"manager invalid: {_short_validation(exc)}"}
+        final_position: int | None = None
+        if args.get("final_position") is not None:
+            try:
+                final_position = int(args["final_position"])
+            except (TypeError, ValueError):
+                return {"error": "final_position must be an integer"}
+        res = self._store.save_squad(
+            season,
+            club,
+            squad=squad,
+            manager=manager,
+            final_position=final_position,
+            sources=_sources(args.get("source")),
+        )
+        if res["already_saved"]:
+            msg = f"already saved: {season} squad for {club} ({res['players']} players)"
+        else:
+            bits = [f"saved: {season} squad for {club} ({res['players']} players total)"]
+            if res["added"]:
+                bits.append(f"+{res['added']} new")
+            if res["updated"]:
+                bits.append(f"{res['updated']} updated")
+            if res["manager_saved"]:
+                bits.append("manager saved")
+            if res["final_position"] is not None:
+                bits.append(f"final position {res['final_position']}")
+            msg = ", ".join(bits)
+        logger.info("👥 {}", msg)
+        logger.log("TRACE", "save_squad payload: {}", json.dumps(args, ensure_ascii=False, default=str))
+        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
+
+    async def _do_save_match(self, args: dict[str, Any]) -> dict[str, Any]:
+        season = str(args.get("season", "")).strip()
+        raw = args.get("matches")
+        if not season:
+            return {"error": "missing 'season'"}
+        if not isinstance(raw, list) or not raw:
+            return {"error": "missing 'matches' array"}
+        try:
+            matches = [Match.model_validate(m) for m in raw]
+        except ValidationError as exc:
+            return {"error": f"matches invalid: {_short_validation(exc)}"}
+        res = self._store.save_matches(season, matches)
+        if res["already_saved"]:
+            msg = f"already saved: {season} matches ({res['rows']} rows)"
+        else:
+            msg = f"saved: {season} matches (+{res['added']} added, {res['updated']} updated)"
+        logger.info("📅 {}", msg)
+        logger.log("TRACE", "save_match payload: {}", json.dumps(args, ensure_ascii=False, default=str))
+        return {"status": "already_saved" if res["already_saved"] else "saved", "message": msg, **res}
